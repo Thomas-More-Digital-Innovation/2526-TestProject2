@@ -1,0 +1,59 @@
+name: Deploy External Helm Chart to RKE2
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Deploy Nginx
+    runs-on: self-hosted
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Helm
+        run: |
+          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+      - name: Prepare Kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          cat <<EOF > ~/.kube/config
+          apiVersion: v1
+          kind: Config
+          clusters:
+          - name: "pve-rke2"
+            cluster:
+              server: "https://rancher.digitalinnovation.be/k8s/clusters/c-m-gpk5hv6b"
+          users:
+          - name: "pve-rke2"
+            user:
+              token: "${{ secrets.RANCHER_API_TOKEN }}"
+          contexts:
+          - name: "pve-rke2"
+            context:
+              user: "pve-rke2"
+              cluster: "pve-rke2"
+          current-context: "pve-rke2"
+          EOF
+          chmod 600 ~/.kube/config
+
+      - name: Add Helm Repository
+        run: |
+          helm repo add bitnami https://charts.bitnami.com/bitnami
+          helm repo update
+
+      - name: Deploy External Chart
+        run: |
+          # Deploying Nginx from the Bitnami repo
+          helm upgrade --install my-web-server bitnami/nginx \
+            --namespace ${{ vars.RANCHER_NAMESPACE }} \
+            --set service.type=ClusterIP \
+            --wait
+
+      - name: Cleanup Kubeconfig
+        if: always()
+        run: rm -f ~/.kube/config
